@@ -10,6 +10,8 @@ const STATE_BRANCH = 'scanner-state';
 const MARKER = '3c-clean-reversal-github-v1';
 let nextRequest = 0;
 let config;
+const API_BASES = ['https://api.bybit.com','https://api.bybit.eu','https://api.bytick.com'];
+let apiBase = API_BASES[0];
 export function validateConfig(c) {
   if (!Array.isArray(c.timeframes) || !c.timeframes.length || c.timeframes.some(t=>!TF[t]) || new Set(c.timeframes).size!==c.timeframes.length) throw Error('Invalid timeframes');
   for (const [k,min,max] of [['swingLen',1,1000],['maxWait',10,1000],['requestsPerSecond',1,20],['concurrency',1,12],['maxCatchupHours',1,168],['closeGraceMs',2000,60000]]) {
@@ -54,19 +56,23 @@ async function throttle() {
   if(slot>now)await sleep(slot-now);
 }
 async function bybit(path, params={}) {
-  const url='https://api.bybit.com'+path+'?'+new URLSearchParams(params);
-  for(let attempt=0;attempt<3;attempt++) {
-    await throttle();
-    let r;
-    try {r=await fetch(url,{signal:AbortSignal.timeout(20000)});} catch {if(attempt<2){await sleep(1000*(attempt+1));continue;}throw Error('Bybit connection timed out');}
-    if(r.status===403 || r.status===451)throw Error('BYBIT_BLOCKED: runner cannot access Bybit. No proxy or region bypass is attempted.');
-    if(r.status===429)throw Error('BYBIT_RATE_LIMIT: stop and wait for the next scheduled run');
-    if(!r.ok) {if(r.status>=500 && attempt<2){await sleep(1500*(attempt+1));continue;}throw Error(`Bybit HTTP ${r.status}`);}
-    let j;
-    try {j=await r.json();} catch {throw Error('Bybit returned a non-JSON page; connectivity is not verified');}
-    if(j.retCode!==0)throw Error(`Bybit API error ${j.retCode}`);
-    return j;
+  let last;
+  for (const base of [apiBase, ...API_BASES.filter(x=>x!==apiBase)]) {
+    const url=base+path+'?'+new URLSearchParams(params);
+    for(let attempt=0;attempt<3;attempt++) {
+      await throttle();
+      let r;
+      try {r=await fetch(url,{signal:AbortSignal.timeout(20000)});} catch (e) {last=e;if(attempt<2){await sleep(1000*(attempt+1));continue;}break;}
+      if(r.status===403 || r.status===451) {last=Error(`BYBIT_BLOCKED: ${base} rejected this runner`);break;}
+      if(r.status===429)throw Error('BYBIT_RATE_LIMIT: stop and wait for the next scheduled run');
+      if(!r.ok) {last=Error(`Bybit HTTP ${r.status}`);if(r.status>=500 && attempt<2){await sleep(1500*(attempt+1));continue;}break;}
+      let j;
+      try {j=await r.json();} catch {last=Error('Bybit returned a non-JSON page; connectivity is not verified');break;}
+      if(j.retCode!==0)throw Error(`Bybit API error ${j.retCode}`);
+      apiBase=base; return j;
+    }
   }
+  throw Error(`BYBIT_BLOCKED: all official Bybit endpoints rejected this runner (${last?.message||'unknown error'})`);
 }
 async function symbols() {
   const all=[], seen=new Set();let cursor='';
