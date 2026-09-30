@@ -1,0 +1,10 @@
+{
+  "timeframes": ["1", "3", "5", "15", "30", "60", "240", "D"],
+  "symbols": [],
+  "swingLen": 5,
+  "maxWait": 150,
+  "maxCatchupHours": 48,
+  "requestsPerSecond": 12,
+  "concurrency": 8,
+  "closeGraceMs": 5000
+}
