@@ -1,0 +1,45 @@
+name: Bybit 3C Scanner
+on:
+  schedule:
+    - cron: '2-57/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Choose connection check, Telegram test, or full scan'
+        type: choice
+        options: [scan, check-connection, telegram-test]
+        default: scan
+permissions:
+  contents: write
+concurrency:
+  group: bybit-3c-scanner
+  cancel-in-progress: false
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuse private repository to avoid paid compute
+        env:
+          IS_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          if [ "$IS_PRIVATE" != "false" ]; then
+            echo 'Use a PUBLIC repository and standard runner for this free configuration.'
+            exit 1
+          fi
+      - name: Verify bundled strategy
+        run: node --test test.mjs
+      - name: Scan or test Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          if [ "$MODE" = "check-connection" ]; then
+            node scanner.mjs --check-connection
+          elif [ "$MODE" = "telegram-test" ]; then
+            node scanner.mjs --telegram-test
+          else
+            node scanner.mjs
+          fi
